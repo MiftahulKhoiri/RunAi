@@ -2,19 +2,20 @@
 # KONFIGURASI MODEL & CHAT
 # ==========================================
 
-# Batas ingatan AI (simpan 4 pasang interaksi terakhir)
+# Batas ingatan AI (simpan 6 pasang interaksi terakhir)
+# Ini sudah pas, tapi butuh N_CTX yang lebih besar agar tidak error
 MAX_MEMORY = 6 
 
 # Parameter Teks
-MAX_TOKENS = 2048   # Batas panjang kata AI
-TEMPERATURE = 0.8    # Kreativitas (0.1 kaku, 0.9 kreatif)
+MAX_TOKENS = 1024    # Diturunkan sedikit agar AI tidak terlalu memaksakan diri menulis panjang lebar
+TEMPERATURE = 0.4    # Diturunkan agar AI lebih logis, fokus pada coding, dan tidak ngelantur
 TOP_P = 0.9
 
 # ==========================================
 # KONFIGURASI HARDWARE (Raspberry Pi 5)
 # ==========================================
-N_CTX = 2048         # Context window (memori RAM untuk membaca teks)
-N_THREADS = 4        # Jumlah inti CPU yang digunakan
+N_CTX = 4096         # DITINGKATKAN: Kapasitas total memori bacaan (Prompt + Riwayat + Jawaban)
+N_THREADS = 4        # Jumlah inti CPU yang digunakan (sudah optimal)
 
 # ==========================================
 # TAMPILAN TERMINAL
