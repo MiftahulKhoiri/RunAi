@@ -10,11 +10,15 @@ def get_time():
 
 def create_file(filename: str, content: str) -> str:
     try:
+        if not filename.strip():
+            return "GAGAL: Nama file tidak boleh kosong."
+
         os.makedirs(PROJECT_ROOT, exist_ok=True)
         filepath = os.path.abspath(os.path.join(PROJECT_ROOT, filename))
         if not filepath.startswith(PROJECT_ROOT + os.sep):
             return f"GAGAL: path '{filename}' berada di luar folder 'workspace' yang diizinkan."
-        os.makedirs(os.path.dirname(filepath), exist_ok=True) 
+
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content.strip())
         return f"SUKSES: File '{filename}' berhasil dibuat."
@@ -29,13 +33,14 @@ def read_file(filename: str) -> str:
             return "GAGAL: Akses ditolak."
         if not os.path.exists(filepath):
             return f"GAGAL: File '{filename}' tidak ditemukan."
-        
+
         max_bytes = 50 * 1024
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             isi = f.read(max_bytes)
-            if f.read(1):
+            # Cek apakah masih ada sisa data (file lebih besar dari max_bytes)
+            if len(isi) == max_bytes and f.read(1):
                 isi += "\n\n[PERINGATAN: File terlalu panjang, sebagian teks dipotong]"
-                
+
         return f"ISI FILE '{filename}':\n{isi}"
     except Exception as e:
         return f"GAGAL MEMBACA: {str(e)}"
@@ -66,19 +71,20 @@ def parse_tool_call(ai_output: str):
     if tool_block.startswith("READ_FILE"):
         parts = tool_block.split("|")
         if len(parts) >= 2:
-            return {"tool": "READ_FILE", "path": parts[1].strip()}
+            path = parts[1].strip().strip('"\'')
+            return {"tool": "READ_FILE", "path": path}
 
     if tool_block.startswith("LIST_DIR"):
         parts = tool_block.split("|")
-        path = parts[1].strip() if len(parts) >= 2 else ""
+        path = parts[1].strip().strip('"\'') if len(parts) >= 2 else ""
         return {"tool": "LIST_DIR", "path": path}
 
     if "CREATE_FILE" in tool_block:
-        path_match = re.search(r"path:\s*(.+?)\s*\n", tool_block)
-        content_match = re.search(r"---BEGIN---\n?(.*?)\n?---END---", tool_block, re.DOTALL)
-        
+        path_match = re.search(r"path:\s*(.+?)\s*(?=\n?---BEGIN---|$)", tool_block, re.DOTALL)
+        content_match = re.search(r"---BEGIN---\s*(.*?)\s*---END---", tool_block, re.DOTALL)
+
         if path_match and content_match:
-            clean_path = path_match.group(1).strip().strip("'\"")
+            clean_path = path_match.group(1).strip().strip('"\'')
             return {
                 "tool": "CREATE_FILE",
                 "path": clean_path,
