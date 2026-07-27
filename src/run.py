@@ -2,10 +2,10 @@ from src.config import MAX_MEMORY, MAX_TOKENS, TEMPERATURE, TOP_P, COLOR_THINK, 
 from src.prompts import SYSTEM_PROMPT, format_current_prompt, format_clean_history
 from src.tools import execute_tool
 
-TOOL_TAG_HOLDBACK = 10  # margin karakter agar tag "<tool" yang terpotong antar-chunk tidak lolos tercetak
+TOOL_TAG_HOLDBACK = 10 
 
 def chat_loop(llm):
-    """Menjalankan loop interaksi dengan kemampuan AI Agent."""
+    """Menjalankan loop interaksi dengan kemampuan AI Agent mandiri."""
     print("="*50)
     print("Ketik 'exit', 'quit', atau 'keluar' untuk menghentikan program.")
     print("="*50)
@@ -42,7 +42,7 @@ def chat_loop(llm):
             state = "THINKING"
             buffer = ""
             full_response = "<think>\n"
-            suppress_tool = False  # aktif begitu tag "<tool" mulai terdeteksi
+            suppress_tool = False 
 
             print(f"{COLOR_THINK}[Proses Berpikir]:\n", end="", flush=True)
 
@@ -68,20 +68,18 @@ def chat_loop(llm):
                 elif state == "ANSWERING":
                     if not suppress_tool:
                         if "<tool" in buffer:
-                            # cetak teks sebelum tag, lalu mulai sembunyikan sisanya
                             idx = buffer.find("<tool")
                             print(buffer[:idx], end="", flush=True)
                             buffer = buffer[idx:]
                             suppress_tool = True
                         elif len(buffer) > TOOL_TAG_HOLDBACK:
-                            # tahan beberapa karakter terakhir, jaga-jaga tag "<tool" terpotong antar-chunk
                             to_print = buffer[:-TOOL_TAG_HOLDBACK]
                             buffer = buffer[-TOOL_TAG_HOLDBACK:]
                             print(to_print, end="", flush=True)
                     else:
                         if "</tool>" in buffer:
                             suppress_tool = False
-                            buffer = ""  # buang isi tag, tidak dicetak ke layar
+                            buffer = "" 
 
             if state == "THINKING":
                 print(f"{COLOR_RESET}\n\n[AI kehabisan napas/bingung]")
@@ -96,16 +94,40 @@ def chat_loop(llm):
             else:
                 final_answer = full_response
 
-            # 2. LOGIKA AGENT: parsing & eksekusi tool didelegasikan ke tools.py
+            # 2. LOGIKA AGENT: Parsing & Eksekusi Tool
             tool_observation = None
             if "<tool>" in final_answer and "</tool>" in final_answer:
                 print(f"\n\033[93m⚡ [AGENT MENGEKSEKUSI TOOL]\033[0m")
                 tool_observation = execute_tool(final_answer)
                 print(f"\033[92m✅ [HASIL SISTEM]: {tool_observation}\033[0m\n")
 
-            # 3. Simpan Riwayat
+            # 3. Simpan Riwayat Sesi Pertama
             clean_turn = format_clean_history(user_input, final_answer, tool_observation)
             chat_history.append(clean_turn)
+
+            # 4. RESPONS OTOMATIS: Berikan kesempatan AI merespons hasil eksekusi tool
+            if tool_observation:
+                followup_prompt = SYSTEM_PROMPT + "".join(chat_history) + f"<|im_start|>user\n[SISTEM]: Hasil eksekusi tool: {tool_observation}. Berikan tanggapan singkat ke pengguna.<|im_end|>\n<|im_start|>assistant\n"
+                
+                print(f"AI = ", end="", flush=True)
+                followup_stream = llm(
+                    followup_prompt,
+                    max_tokens=MAX_TOKENS,
+                    temperature=TEMPERATURE,
+                    top_p=TOP_P,
+                    stop=["<|im_end|>", "<|endoftext|>"],
+                    stream=True
+                )
+                
+                followup_text = ""
+                for output in followup_stream:
+                    chunk = output['choices'][0]['text']
+                    print(chunk, end="", flush=True)
+                    followup_text += chunk
+                print()
+                
+                # Simpan tanggapan akhir ke memori
+                chat_history.append(f"<|im_start|>assistant\n{followup_text}<|im_end|>\n")
 
             if len(chat_history) > MAX_MEMORY:
                 chat_history.pop(0)
