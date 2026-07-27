@@ -65,24 +65,29 @@ def parse_tool_call(ai_output: str):
 
     tool_block = match.group(1).strip()
 
+    # --- Deteksi GET_TIME ---
     if tool_block == "GET_TIME":
         return {"tool": "GET_TIME"}
 
+    # --- Deteksi READ_FILE ---
     if tool_block.startswith("READ_FILE"):
         parts = tool_block.split("|")
         if len(parts) >= 2:
             path = parts[1].strip().strip('"\'')
             return {"tool": "READ_FILE", "path": path}
 
+    # --- Deteksi LIST_DIR ---
     if tool_block.startswith("LIST_DIR"):
         parts = tool_block.split("|")
         path = parts[1].strip().strip('"\'') if len(parts) >= 2 else ""
         return {"tool": "LIST_DIR", "path": path}
 
-    if "CREATE_FILE" in tool_block:
+    # --- Deteksi CREATE_FILE ---
+    # Kondisi: jika ada kata "CREATE_FILE" ATAU ada "path:" dan "---BEGIN---"
+    if ("CREATE_FILE" in tool_block or
+        ("path:" in tool_block and "---BEGIN---" in tool_block)):
         path_match = re.search(r"path:\s*(.+?)\s*(?=\n?---BEGIN---|$)", tool_block, re.DOTALL)
         content_match = re.search(r"---BEGIN---\s*(.*?)\s*---END---", tool_block, re.DOTALL)
-
         if path_match and content_match:
             clean_path = path_match.group(1).strip().strip('"\'')
             return {
