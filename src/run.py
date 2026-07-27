@@ -1,5 +1,5 @@
 def chat_loop(llm):
-    """Menjalankan loop interaksi tanya-jawab dengan model beserta memori sementara dan filter <think> yang diperbaiki."""
+    """Menjalankan loop interaksi dengan Llama-cpp, filter <think>, dan memori yang bersih."""
     print("="*50)
     print("Ketik 'exit', 'quit', atau 'keluar' untuk menghentikan program.")
     print("="*50)
@@ -7,11 +7,11 @@ def chat_loop(llm):
     chat_history = []
     max_memory = 4 
     
-    # SYSTEM PROMPT DIPERTEGAS: Memaksa model untuk disiplin menggunakan format
+    # System prompt yang sangat ketat untuk memaksa format Llama/Qwen
     system_prompt = (
         "<|im_start|>system\n"
-        "Anda adalah asisten AI yang cerdas. Anda WAJIB menjabarkan proses berpikir Anda di dalam tag <think> dan </think>. "
-        "Setelah menulis </think>, Anda harus memberikan jawaban akhir kepada pengguna dalam bahasa Indonesia yang baik dan natural.<|im_end|>\n"
+        "Anda adalah asisten AI berbahasa Indonesia. Anda wajib berpikir terlebih dahulu, "
+        "lalu memberikan jawaban akhir yang ramah, singkat, dan tepat sasaran.<|im_end|>\n"
     )
     
     COLOR_THINK = "\033[90m" 
@@ -31,76 +31,70 @@ def chat_loop(llm):
         if not user_input.strip():
             continue
 
-        current_prompt = f"<|im_start|>user\n{user_input}<|im_end|>\n<|im_start|>assistant\n"
+        # KUNCI UTAMA: Kita memancing AI dengan menuliskan <think> agar ia langsung masuk mode berpikir
+        current_prompt = f"<|im_start|>user\n{user_input}<|im_end|>\n<|im_start|>assistant\n<think>\n"
         full_prompt = system_prompt + "".join(chat_history) + current_prompt
         
         try:
             stream = llm(
                 full_prompt,
-                max_tokens=1024,     # DITINGKATKAN: Agar AI tidak kehabisan kata saat berpikir
-                temperature=0.6,     # Sedikit diturunkan agar AI lebih fokus dan tidak ngelantur
+                max_tokens=1024,     
+                temperature=0.6,     
                 top_p=0.9,
                 stop=["<|im_end|>", "<|endoftext|>"], 
                 stream=True          
             )
             
-            full_response = ""
+            # Kita set otomatis state ke THINKING karena sudah kita pancing di current_prompt
+            state = "THINKING" 
             buffer = ""
-            state = "START" 
+            full_response = "<think>\n" 
+            
+            print(f"{COLOR_THINK}[Proses Berpikir]:\n", end="", flush=True)
             
             for output in stream:
                 chunk = output['choices'][0]['text']
                 full_response += chunk
                 buffer += chunk
                 
-                if state == "START":
-                    if "<think>" in buffer:
-                        state = "THINKING"
-                        print(f"{COLOR_THINK}[Proses Berpikir]:\n", end="", flush=True)
-                        buffer = buffer.split("<think>", 1)[1]
-                    # Jika AI tidak mau berpikir dan langsung menjawab
-                    elif len(buffer) > 10 and "<think>" not in buffer:
-                        state = "ANSWERING"
-                        print("AI = ", end="", flush=True)
-                        print(buffer, end="", flush=True)
-                        buffer = ""
-                
-                elif state == "THINKING":
+                if state == "THINKING":
                     if "</think>" in buffer:
                         state = "ANSWERING"
                         parts = buffer.split("</think>", 1)
-                        print(parts[0], end="", flush=True) 
+                        print(parts[0], end="", flush=True) # Cetak ujung kalimat berpikir
                         
-                        print(f"{COLOR_RESET}\n\nAI = ", end="", flush=True) 
+                        # Transisi ke jawaban
+                        print(f"{COLOR_RESET}\n\nAI = ", end="", flush=True)
                         buffer = parts[1]
                     else:
-                        if len(buffer) > 10:
-                            to_print = buffer[:-10]
-                            buffer = buffer[-10:]
+                        # Tahan 9 karakter (panjang kata "</think>") di buffer
+                        if len(buffer) > 9:
+                            to_print = buffer[:-9]
+                            buffer = buffer[-9:]
                             print(to_print, end="", flush=True)
-                
+                            
                 elif state == "ANSWERING":
                     print(buffer, end="", flush=True)
                     buffer = ""
                     
-            # PENANGANAN JIKA AI LUPA TAG PENUTUP ATAU TERPOTONG
-            if buffer:
-                if state == "START":
-                    print("AI = " + buffer, end="", flush=True)
-                elif state == "THINKING":
-                    # Cetak sisa pikiran, lalu paksa transisi ke jawaban akhir
-                    print(buffer, end="", flush=True)
-                    print(f"{COLOR_RESET}\n\n[Peringatan: Proses berpikir terpotong/format tidak sempurna]")
-                else:
-                    print(buffer, end="", flush=True)
-                    
-            if state == "THINKING" or state == "START":
-                print(COLOR_RESET, end="", flush=True)
+            # Jika AI berhenti generate sebelum menulis </think> (Sering terjadi di model kecil)
+            if state == "THINKING":
+                print(buffer, end="", flush=True)
+                print(f"{COLOR_RESET}\n\n[Peringatan: AI kehabisan napas/bingung dan gagal memberikan jawaban akhir]")
+            elif state == "ANSWERING" and buffer:
+                print(buffer, end="", flush=True)
                 
             print() 
             
-            completed_turn = current_prompt + full_response + "<|im_end|>\n"
-            chat_history.append(completed_turn)
+            # PEMBERSIHAN MEMORI: Kita hapus isi <think> sebelum disimpan ke riwayat
+            if "</think>" in full_response:
+                final_answer = full_response.split("</think>", 1)[1].strip()
+            else:
+                final_answer = "(AI gagal menjawab dengan baik)"
+                
+            # Hanya simpan input Anda dan jawaban akhir AI (tanpa tag <think>)
+            clean_turn = f"<|im_start|>user\n{user_input}<|im_end|>\n<|im_start|>assistant\n{final_answer}<|im_end|>\n"
+            chat_history.append(clean_turn)
             
             if len(chat_history) > max_memory:
                 chat_history.pop(0)
