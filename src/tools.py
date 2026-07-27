@@ -1,6 +1,7 @@
 import os
 import re
 import datetime
+import subprocess  # MODUL BARU UNTUK TERMINAL
 
 PROJECT_ROOT = os.path.abspath("workspace")
 
@@ -26,7 +27,6 @@ def create_file(filename: str, content: str) -> str:
         return f"GAGAL: {str(e)}"
 
 def read_file(filename: str) -> str:
-    """Membaca isi file dengan batas maksimal 50KB agar aman di RAM."""
     try:
         filepath = os.path.abspath(os.path.join(PROJECT_ROOT, filename))
         if not filepath.startswith(PROJECT_ROOT + os.sep):
@@ -37,7 +37,6 @@ def read_file(filename: str) -> str:
         max_bytes = 50 * 1024
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             isi = f.read(max_bytes)
-            # Cek apakah masih ada sisa data (file lebih besar dari max_bytes)
             if len(isi) == max_bytes and f.read(1):
                 isi += "\n\n[PERINGATAN: File terlalu panjang, sebagian teks dipotong]"
 
@@ -46,7 +45,6 @@ def read_file(filename: str) -> str:
         return f"GAGAL MEMBACA: {str(e)}"
 
 def list_dir(subpath: str = "") -> str:
-    """Melihat daftar file/folder di dalam workspace."""
     try:
         target_dir = os.path.abspath(os.path.join(PROJECT_ROOT, subpath))
         if not target_dir.startswith(PROJECT_ROOT):
@@ -58,6 +56,25 @@ def list_dir(subpath: str = "") -> str:
     except Exception as e:
         return f"GAGAL: {str(e)}"
 
+# --- FUNGSI BARU UNTUK MENJALANKAN PERINTAH ---
+def run_command(command: str) -> str:
+    try:
+        # Jika perintah untuk menyalakan aplikasi/Flask, jalankan di background agar AI tidak freeze
+        if "app.py" in command or "flask run" in command:
+            process = subprocess.Popen(command, shell=True, cwd=PROJECT_ROOT)
+            return f"SUKSES: Server '{command}' telah dijalankan di latar belakang (PID: {process.pid}). Silakan cek browser Anda di IP Raspberry Pi port 5000."
+        else:
+            # Perintah terminal biasa (seperti ls, pip install), tunggu sampai selesai
+            result = subprocess.run(command, shell=True, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=15)
+            output = result.stdout if result.stdout else result.stderr
+            if not output:
+                output = "Perintah berhasil dieksekusi tanpa pesan output."
+            return f"HASIL PERINTAH:\n{output.strip()}"
+    except subprocess.TimeoutExpired:
+        return "GAGAL: Perintah memakan waktu terlalu lama (Timeout 15 detik)."
+    except Exception as e:
+        return f"GAGAL: {str(e)}"
+
 def parse_tool_call(ai_output: str):
     match = re.search(r"<tool>(.*?)</tool>", ai_output, re.DOTALL)
     if not match:
@@ -65,29 +82,30 @@ def parse_tool_call(ai_output: str):
 
     tool_block = match.group(1).strip()
 
-    # --- Deteksi GET_TIME ---
     if tool_block == "GET_TIME":
         return {"tool": "GET_TIME"}
 
-    # --- Deteksi READ_FILE ---
     if tool_block.startswith("READ_FILE"):
         parts = tool_block.split("|", 1)
         if len(parts) >= 2:
             path = parts[1].strip().strip('"\'')
             return {"tool": "READ_FILE", "path": path}
 
-    # --- Deteksi LIST_DIR ---
     if tool_block.startswith("LIST_DIR"):
         parts = tool_block.split("|", 1)
         path = parts[1].strip().strip('"\'') if len(parts) >= 2 else ""
         return {"tool": "LIST_DIR", "path": path}
+        
+    # --- DETEKSI TOOL BARU ---
+    if tool_block.startswith("RUN_COMMAND"):
+        parts = tool_block.split("|", 1)
+        if len(parts) >= 2:
+            return {"tool": "RUN_COMMAND", "command": parts[1].strip()}
 
-    # --- Deteksi CREATE_FILE ---
     if "CREATE_FILE" in tool_block or "path:" in tool_block:
         path_str = ""
         content_str = ""
         
-        # 1. Coba deteksi format PIPE (CREATE_FILE|nama_file|isi_kode)
         if tool_block.startswith("CREATE_FILE|"):
             parts = tool_block.split("|", 2)
             if len(parts) >= 3:
@@ -97,9 +115,7 @@ def parse_tool_call(ai_output: str):
                     "content": parts[2].strip()
                 }
 
-        # 2. Jika gagal, coba deteksi format panjang (path: dan ---BEGIN---)
         path_match = re.search(r"(?:path:\s*|CREATE_FILE\s*\|?\s*)([a-zA-Z0-9_\-\./\\]+\.\w+)", tool_block)
-        
         if path_match:
             path_str = path_match.group(1).strip().strip('"\'')
             
@@ -107,7 +123,6 @@ def parse_tool_call(ai_output: str):
             if content_match:
                 content_str = content_match.group(1).strip()
             else:
-                # Ambil semua teks yang ada setelah nama file sebagai kode
                 full_matched_path = path_match.group(0)
                 parts = tool_block.split(full_matched_path, 1)
                 if len(parts) > 1:
@@ -138,5 +153,7 @@ def execute_tool(ai_output: str) -> str:
         return read_file(tool_call["path"])
     if tool_call["tool"] == "LIST_DIR":
         return list_dir(tool_call["path"])
+    if tool_call["tool"] == "RUN_COMMAND": # EKSEKUSI ALAT BARU
+        return run_command(tool_call["command"])
 
     return "Tool tidak dikenali."
