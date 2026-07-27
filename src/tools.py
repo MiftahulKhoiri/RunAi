@@ -71,29 +71,56 @@ def parse_tool_call(ai_output: str):
 
     # --- Deteksi READ_FILE ---
     if tool_block.startswith("READ_FILE"):
-        parts = tool_block.split("|")
+        parts = tool_block.split("|", 1)
         if len(parts) >= 2:
             path = parts[1].strip().strip('"\'')
             return {"tool": "READ_FILE", "path": path}
 
     # --- Deteksi LIST_DIR ---
     if tool_block.startswith("LIST_DIR"):
-        parts = tool_block.split("|")
+        parts = tool_block.split("|", 1)
         path = parts[1].strip().strip('"\'') if len(parts) >= 2 else ""
         return {"tool": "LIST_DIR", "path": path}
 
     # --- Deteksi CREATE_FILE ---
-    # Kondisi: jika ada kata "CREATE_FILE" ATAU ada "path:" dan "---BEGIN---"
-    if ("CREATE_FILE" in tool_block or
-        ("path:" in tool_block and "---BEGIN---" in tool_block)):
-        path_match = re.search(r"path:\s*(.+?)\s*(?=\n?---BEGIN---|$)", tool_block, re.DOTALL)
-        content_match = re.search(r"---BEGIN---\s*(.*?)\s*---END---", tool_block, re.DOTALL)
-        if path_match and content_match:
-            clean_path = path_match.group(1).strip().strip('"\'')
+    if "CREATE_FILE" in tool_block or "path:" in tool_block:
+        path_str = ""
+        content_str = ""
+        
+        # 1. Coba deteksi format PIPE (CREATE_FILE|nama_file|isi_kode)
+        if tool_block.startswith("CREATE_FILE|"):
+            parts = tool_block.split("|", 2)
+            if len(parts) >= 3:
+                return {
+                    "tool": "CREATE_FILE",
+                    "path": parts[1].strip().strip('"\''),
+                    "content": parts[2].strip()
+                }
+
+        # 2. Jika gagal, coba deteksi format panjang (path: dan ---BEGIN---)
+        path_match = re.search(r"(?:path:\s*|CREATE_FILE\s*\|?\s*)([a-zA-Z0-9_\-\./\\]+\.\w+)", tool_block)
+        
+        if path_match:
+            path_str = path_match.group(1).strip().strip('"\'')
+            
+            content_match = re.search(r"---BEGIN---\s*(.*?)\s*(?:---END---|$)", tool_block, re.DOTALL)
+            if content_match:
+                content_str = content_match.group(1).strip()
+            else:
+                # Ambil semua teks yang ada setelah nama file sebagai kode
+                full_matched_path = path_match.group(0)
+                parts = tool_block.split(full_matched_path, 1)
+                if len(parts) > 1:
+                    raw_content = parts[1].strip()
+                    if raw_content.startswith("|"):
+                        raw_content = raw_content[1:]
+                    content_str = raw_content.strip()
+                    
+        if path_str and content_str:
             return {
                 "tool": "CREATE_FILE",
-                "path": clean_path,
-                "content": content_match.group(1),
+                "path": path_str,
+                "content": content_str
             }
 
     return None
