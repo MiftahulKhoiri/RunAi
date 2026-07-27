@@ -15,6 +15,7 @@ SYSTEM_PROMPT = (
     "   Gunakan untuk menjalankan perintah Bash/CLI. Tulis perintah PERSIS seperti yang diminta pengguna.\n"
     "   Contoh 1: <tool>RUN_COMMAND|ls</tool>\n"
     "   Contoh 2: <tool>RUN_COMMAND|python app.py</tool>\n"
+    "   Contoh 3: <tool>RUN_COMMAND|apt</tool>\n"
     "\n"
     "INSTRUKSI MENJAWAB (SANGAT PENTING):\n"
     "1. Berpikir singkat dan langsung ke inti di dalam tag <think> dan </think>.\n"
