@@ -3,11 +3,11 @@
 # ==========================================
 
 # Batas ingatan AI (simpan 4 pasang interaksi terakhir)
-MAX_MEMORY = 4 
+MAX_MEMORY = 6 
 
 # Parameter Teks
-MAX_TOKENS = 1024    # Batas panjang kata AI
-TEMPERATURE = 0.6    # Kreativitas (0.1 kaku, 0.9 kreatif)
+MAX_TOKENS = 2048   # Batas panjang kata AI
+TEMPERATURE = 0.8    # Kreativitas (0.1 kaku, 0.9 kreatif)
 TOP_P = 0.9
 
 # ==========================================
