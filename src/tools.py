@@ -22,15 +22,20 @@ def create_file(filename: str, content: str) -> str:
         return f"GAGAL: {str(e)}"
 
 def read_file(filename: str) -> str:
-    """Membaca isi file agar AI bisa merevisi kode yang sudah ada."""
+    """Membaca isi file dengan batas maksimal 50KB agar aman di RAM."""
     try:
         filepath = os.path.abspath(os.path.join(PROJECT_ROOT, filename))
         if not filepath.startswith(PROJECT_ROOT + os.sep):
             return "GAGAL: Akses ditolak."
         if not os.path.exists(filepath):
             return f"GAGAL: File '{filename}' tidak ditemukan."
-        with open(filepath, "r", encoding="utf-8") as f:
-            isi = f.read()
+        
+        max_bytes = 50 * 1024
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            isi = f.read(max_bytes)
+            if f.read(1):
+                isi += "\n\n[PERINGATAN: File terlalu panjang, sebagian teks dipotong]"
+                
         return f"ISI FILE '{filename}':\n{isi}"
     except Exception as e:
         return f"GAGAL MEMBACA: {str(e)}"
@@ -53,7 +58,6 @@ def parse_tool_call(ai_output: str):
     if not match:
         return None
 
-    # Gunakan .strip() agar aman dari spasi/enter yang tidak disengaja oleh AI
     tool_block = match.group(1).strip()
 
     if tool_block == "GET_TIME":
@@ -69,17 +73,16 @@ def parse_tool_call(ai_output: str):
         path = parts[1].strip() if len(parts) >= 2 else ""
         return {"tool": "LIST_DIR", "path": path}
 
-    if tool_block.startswith("CREATE_FILE"):
-        file_match = re.search(
-            r"CREATE_FILE\s*\npath:\s*(.+?)\s*\n---BEGIN---\n(.*?)\n---END---",
-            tool_block,
-            re.DOTALL,
-        )
-        if file_match:
+    if "CREATE_FILE" in tool_block:
+        path_match = re.search(r"path:\s*(.+?)\s*\n", tool_block)
+        content_match = re.search(r"---BEGIN---\n?(.*?)\n?---END---", tool_block, re.DOTALL)
+        
+        if path_match and content_match:
+            clean_path = path_match.group(1).strip().strip("'\"")
             return {
                 "tool": "CREATE_FILE",
-                "path": file_match.group(1).strip(),
-                "content": file_match.group(2),
+                "path": clean_path,
+                "content": content_match.group(1),
             }
 
     return None
