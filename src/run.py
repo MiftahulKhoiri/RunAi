@@ -1,5 +1,5 @@
 def chat_loop(llm):
-    """Menjalankan loop interaksi tanya-jawab dengan model beserta memori sementara dan filter <think>."""
+    """Menjalankan loop interaksi tanya-jawab dengan model beserta memori sementara dan filter <think> yang diperbaiki."""
     print("="*50)
     print("Ketik 'exit', 'quit', atau 'keluar' untuk menghentikan program.")
     print("="*50)
@@ -7,11 +7,15 @@ def chat_loop(llm):
     chat_history = []
     max_memory = 4 
     
-    system_prompt = "<|im_start|>system\nAnda adalah asisten AI yang cerdas, membantu, dan responsif. Jawablah menggunakan bahasa Indonesia yang baik.<|im_end|>\n"
+    # SYSTEM PROMPT DIPERTEGAS: Memaksa model untuk disiplin menggunakan format
+    system_prompt = (
+        "<|im_start|>system\n"
+        "Anda adalah asisten AI yang cerdas. Anda WAJIB menjabarkan proses berpikir Anda di dalam tag <think> dan </think>. "
+        "Setelah menulis </think>, Anda harus memberikan jawaban akhir kepada pengguna dalam bahasa Indonesia yang baik dan natural.<|im_end|>\n"
+    )
     
-    # Kode Warna ANSI untuk Terminal
-    COLOR_THINK = "\033[90m" # Warna abu-abu gelap untuk proses berpikir
-    COLOR_RESET = "\033[0m"  # Reset ke warna terminal bawaan
+    COLOR_THINK = "\033[90m" 
+    COLOR_RESET = "\033[0m"  
     
     while True:
         try:
@@ -33,8 +37,8 @@ def chat_loop(llm):
         try:
             stream = llm(
                 full_prompt,
-                max_tokens=512,      
-                temperature=0.7,     
+                max_tokens=1024,     # DITINGKATKAN: Agar AI tidak kehabisan kata saat berpikir
+                temperature=0.6,     # Sedikit diturunkan agar AI lebih fokus dan tidak ngelantur
                 top_p=0.9,
                 stop=["<|im_end|>", "<|endoftext|>"], 
                 stream=True          
@@ -42,63 +46,59 @@ def chat_loop(llm):
             
             full_response = ""
             buffer = ""
-            state = "START" # Status deteksi: START, THINKING, ANSWERING
+            state = "START" 
             
             for output in stream:
                 chunk = output['choices'][0]['text']
                 full_response += chunk
                 buffer += chunk
                 
-                # --- STATE 1: Mengecek apakah AI mulai dengan <think> ---
                 if state == "START":
                     if "<think>" in buffer:
                         state = "THINKING"
                         print(f"{COLOR_THINK}[Proses Berpikir]:\n", end="", flush=True)
-                        # Buang tag <think> dari layar
                         buffer = buffer.split("<think>", 1)[1]
-                    elif len(buffer) > 7 and "<think>" not in buffer:
-                        # Jika sudah lewat 7 karakter dan tidak ada <think>, berarti AI langsung menjawab
+                    # Jika AI tidak mau berpikir dan langsung menjawab
+                    elif len(buffer) > 10 and "<think>" not in buffer:
                         state = "ANSWERING"
                         print("AI = ", end="", flush=True)
                         print(buffer, end="", flush=True)
                         buffer = ""
                 
-                # --- STATE 2: Menampilkan proses berpikir dengan warna Abu-abu ---
                 elif state == "THINKING":
                     if "</think>" in buffer:
                         state = "ANSWERING"
                         parts = buffer.split("</think>", 1)
-                        print(parts[0], end="", flush=True) # Cetak sisa pikiran sebelum tag penutup
+                        print(parts[0], end="", flush=True) 
                         
-                        # Kembalikan warna ke normal dan cetak awalan jawaban
                         print(f"{COLOR_RESET}\n\nAI = ", end="", flush=True) 
                         buffer = parts[1]
                     else:
-                        # Tahan 8 karakter terakhir di memori visual jaga-jaga tag </think> terpotong saat streaming
-                        if len(buffer) > 8:
-                            to_print = buffer[:-8]
-                            buffer = buffer[-8:]
+                        if len(buffer) > 10:
+                            to_print = buffer[:-10]
+                            buffer = buffer[-10:]
                             print(to_print, end="", flush=True)
                 
-                # --- STATE 3: Menampilkan jawaban utama secara normal ---
                 elif state == "ANSWERING":
                     print(buffer, end="", flush=True)
                     buffer = ""
                     
-            # Bersihkan sisa karakter di buffer jika AI sudah selesai bicara
+            # PENANGANAN JIKA AI LUPA TAG PENUTUP ATAU TERPOTONG
             if buffer:
                 if state == "START":
                     print("AI = " + buffer, end="", flush=True)
+                elif state == "THINKING":
+                    # Cetak sisa pikiran, lalu paksa transisi ke jawaban akhir
+                    print(buffer, end="", flush=True)
+                    print(f"{COLOR_RESET}\n\n[Peringatan: Proses berpikir terpotong/format tidak sempurna]")
                 else:
                     print(buffer, end="", flush=True)
                     
-            # Pastikan warna terminal kembali normal meskipun AI "lupa" memberi tag </think> (sering terjadi jika max_tokens habis)
-            if state == "THINKING":
+            if state == "THINKING" or state == "START":
                 print(COLOR_RESET, end="", flush=True)
                 
-            print() # Tambahkan jarak baris baru
+            print() 
             
-            # Simpan riwayat lengkap (termasuk tag <think> mentah) agar AI ingat alur logikanya sendiri
             completed_turn = current_prompt + full_response + "<|im_end|>\n"
             chat_history.append(completed_turn)
             
