@@ -7,7 +7,7 @@
 MAX_MEMORY = 6 
 
 # Parameter Teks
-MAX_TOKENS = 1024    # Diturunkan sedikit agar AI tidak terlalu memaksakan diri menulis panjang lebar
+MAX_TOKENS = 4096    # Diturunkan sedikit agar AI tidak terlalu memaksakan diri menulis panjang lebar
 TEMPERATURE = 0.4    # Diturunkan agar AI lebih logis, fokus pada coding, dan tidak ngelantur
 TOP_P = 0.9
 
