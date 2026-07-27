@@ -50,7 +50,7 @@ def chat_loop(llm):
             full_response = ""
             suppress_tool = False
 
-            print(f"\n{COLOR_THINK}[Proses Berpikir]:", flush=True)
+            print(f"\n{COLOR_THINK}[Sedang Berpikir]:", flush=True)
 
             for output in stream:
                 chunk = output['choices'][0]['text']
