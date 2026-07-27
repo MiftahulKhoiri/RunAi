@@ -1,4 +1,5 @@
 import os
+from src.config import N_CTX, N_THREADS
 
 try:
     from llama_cpp import Llama
@@ -13,7 +14,6 @@ def list_models(model_dir):
     for f in os.listdir(model_dir):
         if f.lower().endswith(".gguf"):
             models.append(os.path.join(model_dir, f))
-    # Urutkan berdasarkan abjad agar rapi
     return sorted(models)
 
 def select_model(models):
@@ -37,14 +37,13 @@ def select_model(models):
             print("Masukkan angka yang valid.")
 
 def load_model(model_path):
-    """Memuat model GGUF ke dalam memori menggunakan Llama-cpp."""
+    """Memuat model GGUF ke dalam memori menggunakan konfigurasi dari config.py"""
     try:
-        # Konfigurasi dioptimalkan untuk Raspberry Pi 5 (8GB RAM, 4 Cores)
         return Llama(
             model_path=model_path,
-            n_ctx=2048,      # Context window (bisa disesuaikan s/d 4096 atau 8192 jika RAM cukup)
-            n_threads=4,     # Memaksimalkan 4 core CPU dari Raspberry Pi 5
-            verbose=False    # False agar terminal bersih dari log C++ 
+            n_ctx=N_CTX,
+            n_threads=N_THREADS,
+            verbose=False    
         )
     except Exception as e:
         print(f"Error saat memuat model: {e}")
