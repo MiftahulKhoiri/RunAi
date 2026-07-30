@@ -1,9 +1,22 @@
 import os
 import re
 import datetime
-import subprocess  # MODUL BARU UNTUK TERMINAL
+import subprocess
 
 PROJECT_ROOT = os.path.abspath("workspace")
+
+# Pola perintah yang berpotensi sangat merusak sistem.
+# BUKAN sandbox penuh -- hanya jaring pengaman dasar untuk kecelakaan
+# (mis. AI salah generate perintah). Perintah lain tetap berjalan bebas
+# dengan hak akses user yang menjalankan skrip ini.
+DANGEROUS_PATTERNS = [
+    r"rm\s+-rf\s+/(?:\s|$)",
+    r"\bmkfs\b",
+    r"\bdd\s+.*of=/dev/",
+    r">\s*/dev/sd[a-z]",
+    r"\b(shutdown|reboot|poweroff)\b",
+    r":\(\)\s*\{\s*:\|:&\s*\}\s*;\s*:",  # fork bomb
+]
 
 def get_time():
     waktu = datetime.datetime.now().strftime("%A, %d %B %Y %H:%M:%S")
@@ -47,7 +60,9 @@ def read_file(filename: str) -> str:
 def list_dir(subpath: str = "") -> str:
     try:
         target_dir = os.path.abspath(os.path.join(PROJECT_ROOT, subpath))
-        if not target_dir.startswith(PROJECT_ROOT):
+        # FIX: tambahkan os.sep -- tanpa ini "workspace_evil" dianggap
+        # "berawalan" workspace dan lolos (bug path traversal).
+        if not (target_dir == PROJECT_ROOT or target_dir.startswith(PROJECT_ROOT + os.sep)):
             return "GAGAL: Akses ditolak."
         if not os.path.exists(target_dir):
             return f"GAGAL: Folder '{subpath}' tidak ditemukan."
@@ -56,15 +71,18 @@ def list_dir(subpath: str = "") -> str:
     except Exception as e:
         return f"GAGAL: {str(e)}"
 
-# --- FUNGSI BARU UNTUK MENJALANKAN PERINTAH ---
 def run_command(command: str) -> str:
+    os.makedirs(PROJECT_ROOT, exist_ok=True)  # FIX: jaga-jaga folder belum ada
+
+    for pattern in DANGEROUS_PATTERNS:
+        if re.search(pattern, command, re.IGNORECASE):
+            return "GAGAL: Perintah diblokir karena berpotensi merusak sistem."
+
     try:
-        # Jika perintah untuk menyalakan aplikasi/Flask, jalankan di background agar AI tidak freeze
         if "app.py" in command or "flask run" in command:
             process = subprocess.Popen(command, shell=True, cwd=PROJECT_ROOT)
             return f"SUKSES: Server '{command}' telah dijalankan di latar belakang (PID: {process.pid}). Silakan cek browser Anda di IP Raspberry Pi port 5000."
         else:
-            # Perintah terminal biasa (seperti ls, pip install), tunggu sampai selesai
             result = subprocess.run(command, shell=True, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=15)
             output = result.stdout if result.stdout else result.stderr
             if not output:
@@ -95,8 +113,7 @@ def parse_tool_call(ai_output: str):
         parts = tool_block.split("|", 1)
         path = parts[1].strip().strip('"\'') if len(parts) >= 2 else ""
         return {"tool": "LIST_DIR", "path": path}
-        
-    # --- DETEKSI TOOL BARU ---
+
     if tool_block.startswith("RUN_COMMAND"):
         parts = tool_block.split("|", 1)
         if len(parts) >= 2:
@@ -105,7 +122,7 @@ def parse_tool_call(ai_output: str):
     if "CREATE_FILE" in tool_block or "path:" in tool_block:
         path_str = ""
         content_str = ""
-        
+
         if tool_block.startswith("CREATE_FILE|"):
             parts = tool_block.split("|", 2)
             if len(parts) >= 3:
@@ -118,7 +135,7 @@ def parse_tool_call(ai_output: str):
         path_match = re.search(r"(?:path:\s*|CREATE_FILE\s*\|?\s*)([a-zA-Z0-9_\-\./\\]+\.\w+)", tool_block)
         if path_match:
             path_str = path_match.group(1).strip().strip('"\'')
-            
+
             content_match = re.search(r"---BEGIN---\s*(.*?)\s*(?:---END---|$)", tool_block, re.DOTALL)
             if content_match:
                 content_str = content_match.group(1).strip()
@@ -130,7 +147,7 @@ def parse_tool_call(ai_output: str):
                     if raw_content.startswith("|"):
                         raw_content = raw_content[1:]
                     content_str = raw_content.strip()
-                    
+
         if path_str and content_str:
             return {
                 "tool": "CREATE_FILE",
@@ -153,7 +170,7 @@ def execute_tool(ai_output: str) -> str:
         return read_file(tool_call["path"])
     if tool_call["tool"] == "LIST_DIR":
         return list_dir(tool_call["path"])
-    if tool_call["tool"] == "RUN_COMMAND": # EKSEKUSI ALAT BARU
+    if tool_call["tool"] == "RUN_COMMAND":
         return run_command(tool_call["command"])
 
     return "Tool tidak dikenali."
