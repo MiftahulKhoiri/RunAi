@@ -11,9 +11,7 @@ THINK_TAG_HOLDBACK = 9   # Margin karakter untuk mengamankan tag </think> yang t
 def _run_stream(llm, full_prompt, label="AI ="):
     """
     Satu kali stream generate: cetak proses berpikir dan jawaban secara live,
-    sekaligus menyembunyikan tag <tool>...</tool> dari layar. Dipakai untuk
-    jawaban utama MAUPUN follow-up, supaya keduanya konsisten (dulu follow-up
-    mencetak chunk mentah tanpa penyaringan tool).
+    sekaligus menyembunyikan tag <tool>...</tool> dari layar.
     """
     stream = llm(
         full_prompt,
@@ -76,16 +74,18 @@ def _run_stream(llm, full_prompt, label="AI ="):
             buffer = ""
         elif buffer:
             print(buffer, end="", flush=True)
-    print()
+        print()
 
     return full_response
 
 
 def _extract_final_answer(full_response):
-    if "<think>" in full_response and "</think>" in full_response:
+    # PERBAIKAN: Hanya cek tag penutup </think> saja
+    if "</think>" in full_response:
         final_answer = full_response.split("</think>", 1)[1].strip()
     else:
-        final_answer = full_response.strip()
+        # Fallback jika model lupa menutup tag
+        final_answer = full_response.replace("<think>", "").strip()
 
     if "</tool>" in final_answer and "<tool>" not in final_answer:
         final_answer = "<tool>" + final_answer
@@ -94,10 +94,6 @@ def _extract_final_answer(full_response):
 
 
 def _strip_tool_tags(text):
-    """Buang blok <tool>...</tool> dari jawaban follow-up. Tool kedua di
-    dalam follow-up sengaja TIDAK dieksekusi (mencegah rantai tool tanpa
-    batas dalam satu giliran), jadi tag mentahnya tidak boleh bocor ke
-    layar maupun ke riwayat."""
     return re.sub(r"<tool>.*?</tool>", "", text, flags=re.DOTALL).strip()
 
 
@@ -139,10 +135,6 @@ def chat_loop(llm):
                 tool_observation = execute_tool(final_answer)
                 print(f"\033[92m✅ [HASIL SISTEM]:\033[0m {tool_observation}\n")
 
-            # Satu giliran = satu entri riwayat, termasuk follow-up-nya kalau
-            # ada tool. Dulu follow-up disimpan sebagai entri terpisah, jadi
-            # bisa terpotong sendiri saat MAX_MEMORY tercapai dan membuat
-            # riwayat ChatML tidak valid (assistant menggantung tanpa user).
             turn_text = format_clean_history(user_input, final_answer, tool_observation)
 
             if tool_observation:
