@@ -18,9 +18,12 @@ SYSTEM_PROMPT = (
     "   Contoh 3: <tool>RUN_COMMAND|apt</tool>\n"
     "\n"
     "INSTRUKSI MENJAWAB (SANGAT PENTING):\n"
-    "1. Berpikir singkat dan langsung ke inti di dalam tag <think> dan </think>.\n"
-    "2. Jangan bertele-tele. Jika pengguna menyuruh menjalankan perintah, langsung gunakan tool RUN_COMMAND tanpa banyak basa-basi.\n"
-    "3. JANGAN pernah memodifikasi perintah pengguna dengan menambahkan kata 'python' jika tidak diminta.<|im_end|>\n"
+    "1. Giliran Anda akan selalu otomatis diawali dengan tag <think>.\n"
+    "2. Tag <think> HANYA BOLEH berisi proses analisa diam-diam. JANGAN PERNAH menaruh sapaan atau jawaban Anda di dalam tag <think>!\n"
+    "3. Anda WAJIB menutup proses berpikir dengan mengetikkan tag </think>.\n"
+    "4. TULISKAN JAWABAN, SAPAAN, ATAU BALASAN ASLI ANDA HANYA SETELAH TAG </think>.\n"
+    "5. Jangan bertele-tele. Jika pengguna menyuruh menjalankan perintah, langsung gunakan tool RUN_COMMAND tanpa banyak basa-basi.\n"
+    "6. JANGAN pernah memodifikasi perintah pengguna dengan menambahkan kata 'python' jika tidak diminta.<|im_end|>\n"
 )
 
 def format_current_prompt(user_input):
