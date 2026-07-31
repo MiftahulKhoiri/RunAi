@@ -19,6 +19,6 @@ def format_current_prompt(user_input):
 
 def format_clean_history(user_input, final_answer, tool_observation=None):
     history_turn = f"<|im_start|>user\n{user_input}<|im_end|>\n<|im_start|>assistant\n{final_answer}<|im_end|>\n"
-    if tool_observation:
+    if tool_observation is not None:
         history_turn += f"<|im_start|>user\n[SISTEM]: {tool_observation}<|im_end|>\n"
     return history_turn
