@@ -3,7 +3,7 @@
 # ==========================================
 
 # Batas ingatan AI (simpan 6 pasang interaksi terakhir)
-MAX_MEMORY = 6
+MAX_MEMORY = 4
 
 # Parameter Teks
 # PENTING: MAX_TOKENS harus jauh lebih kecil dari N_CTX.
