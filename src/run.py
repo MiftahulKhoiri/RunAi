@@ -4,8 +4,9 @@ from src.config import MAX_MEMORY, MAX_TOKENS, TEMPERATURE, TOP_P, COLOR_THINK, 
 from src.tools import execute_tool
 from src.prompts import SYSTEM_PROMPT, format_current_prompt, format_clean_history
 
-TOOL_TAG_HOLDBACK = 10   # Margin karakter untuk mengamankan tag <tool yang terpotong chunk
-THINK_TAG_HOLDBACK = 9   # Margin karakter untuk mengamankan tag </think> yang terpotong chunk
+TOOL_TAG_HOLDBACK = 10     # Margin karakter untuk mengamankan tag <tool yang terpotong chunk
+THINK_TAG_HOLDBACK = 9     # Margin karakter untuk mengamankan tag </think> yang terpotong chunk
+MAX_TOOL_ITERATIONS = 4    # Batas rangkaian tool-call berantai per giliran (cegah infinite loop)
 
 # Warna tampilan CLI
 COLOR_USER = "\033[92m"
@@ -109,6 +110,65 @@ def _has_tool_call(text):
     return "<tool>" in text and "</tool>" in text
 
 
+def _run_agent_turn(llm, chat_history, user_input):
+    """
+    Menjalankan satu giliran percakapan, termasuk rangkaian tool-call jika model
+    memanggil tool lagi setelah menerima hasil tool sebelumnya (maks MAX_TOOL_ITERATIONS
+    kali). Mengembalikan turn_text siap disimpan ke chat_history, atau None jika model
+    tidak menghasilkan jawaban valid (giliran ini tidak perlu disimpan).
+    """
+    full_prompt = SYSTEM_PROMPT + "".join(chat_history) + format_current_prompt(user_input)
+
+    turn_text = ""
+    label = "AI ="
+    round_num = 0
+
+    while True:
+        response = _run_stream(llm, full_prompt, label=label)
+        answer = _extract_final_answer(response)
+
+        if not answer.strip():
+            print(f"\n{COLOR_WARN}[Model tidak menghasilkan jawaban, coba ulangi pertanyaan]{COLOR_RESET}")
+            return None
+
+        if not _has_tool_call(answer):
+            # Jawaban akhir, tidak ada tool call lagi
+            if round_num == 0:
+                turn_text = format_clean_history(user_input, answer, None)
+            else:
+                turn_text += f"<|im_start|>assistant\n{answer}<|im_end|>\n"
+            return turn_text
+
+        if round_num >= MAX_TOOL_ITERATIONS:
+            print(f"\n{COLOR_WARN}[Batas maksimal {MAX_TOOL_ITERATIONS} tool-call berantai tercapai, "
+                  f"menghentikan rangkaian tool]{COLOR_RESET}")
+            clean_answer = _strip_tool_tags(answer)
+            if round_num == 0:
+                turn_text = format_clean_history(user_input, clean_answer, None)
+            else:
+                turn_text += f"<|im_start|>assistant\n{clean_answer}<|im_end|>\n"
+            return turn_text
+
+        print(f"\n{COLOR_WARN}⚡ [AGENT MENGEKSEKUSI TOOL]{COLOR_RESET}")
+        try:
+            tool_observation = execute_tool(answer)
+        except Exception as tool_err:
+            tool_observation = f"[Error saat menjalankan tool: {tool_err}]"
+        print(f"{COLOR_OK}✅ [HASIL SISTEM]:{COLOR_RESET} {tool_observation}\n")
+
+        if round_num == 0:
+            turn_text = format_clean_history(user_input, answer, tool_observation)
+        else:
+            turn_text += (
+                f"<|im_start|>assistant\n{answer}<|im_end|>\n"
+                f"<|im_start|>user\n[SISTEM]: {tool_observation}<|im_end|>\n"
+            )
+
+        round_num += 1
+        full_prompt = SYSTEM_PROMPT + "".join(chat_history) + turn_text + "<|im_start|>assistant\n<think>\n"
+        label = f"AI (lanjutan {round_num}) ="
+
+
 def chat_loop(llm):
     """Menjalankan loop interaksi CLI dengan tampilan yang rapi dan elegan."""
     print("=" * 50)
@@ -132,44 +192,12 @@ def chat_loop(llm):
         if not user_input.strip():
             continue
 
-        current_prompt = format_current_prompt(user_input)
-        full_prompt = SYSTEM_PROMPT + "".join(chat_history) + current_prompt
-
         try:
             start_time = time.time()
 
-            full_response = _run_stream(llm, full_prompt, label="AI =")
-            final_answer = _extract_final_answer(full_response)
-
-            if not final_answer.strip():
-                print(f"\n{COLOR_WARN}[Model tidak menghasilkan jawaban, coba ulangi pertanyaan]{COLOR_RESET}")
+            turn_text = _run_agent_turn(llm, chat_history, user_input)
+            if turn_text is None:
                 continue
-
-            tool_observation = None
-            if _has_tool_call(final_answer):
-                print(f"\n{COLOR_WARN}⚡ [AGENT MENGEKSEKUSI TOOL]{COLOR_RESET}")
-                try:
-                    tool_observation = execute_tool(final_answer)
-                except Exception as tool_err:
-                    tool_observation = f"[Error saat menjalankan tool: {tool_err}]"
-                print(f"{COLOR_OK}✅ [HASIL SISTEM]:{COLOR_RESET} {tool_observation}\n")
-
-            turn_text = format_clean_history(user_input, final_answer, tool_observation)
-
-            if tool_observation is not None:
-                followup_prompt = SYSTEM_PROMPT + "".join(chat_history) + turn_text + "<|im_start|>assistant\n<think>\n"
-
-                followup_response = _run_stream(llm, followup_prompt, label="AI (lanjutan) =")
-                followup_answer = _extract_final_answer(followup_response)
-
-                if _has_tool_call(followup_answer):
-                    # Agent ini belum mendukung tool-call berantai (multi-step) dalam satu giliran.
-                    # Tool kedua TIDAK dieksekusi -- hanya diberi tahu ke pengguna agar tidak hilang diam-diam.
-                    print(f"\n{COLOR_WARN}[Peringatan] Model mencoba memanggil tool lagi setelah tool "
-                          f"pertama, tapi ini belum didukung sehingga diabaikan.{COLOR_RESET}")
-
-                clean_followup = _strip_tool_tags(followup_answer)
-                turn_text += f"<|im_start|>assistant\n{clean_followup}<|im_end|>\n"
 
             chat_history.append(turn_text)
 
