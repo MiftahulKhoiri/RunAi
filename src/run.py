@@ -7,6 +7,14 @@ from src.prompts import SYSTEM_PROMPT, format_current_prompt, format_clean_histo
 TOOL_TAG_HOLDBACK = 10   # Margin karakter untuk mengamankan tag <tool yang terpotong chunk
 THINK_TAG_HOLDBACK = 9   # Margin karakter untuk mengamankan tag </think> yang terpotong chunk
 
+# Warna tampilan CLI
+COLOR_USER = "\033[92m"
+COLOR_AI = "\033[96m"
+COLOR_WARN = "\033[93m"
+COLOR_OK = "\033[92m"
+COLOR_ERR = "\033[91m"
+COLOR_DIM = "\033[90m"
+
 
 def _run_stream(llm, full_prompt, label="AI ="):
     """
@@ -39,7 +47,7 @@ def _run_stream(llm, full_prompt, label="AI ="):
                 state = "ANSWERING"
                 parts = buffer.split("</think>", 1)
                 print(parts[0], end="", flush=True)
-                print(f"{COLOR_RESET}\n\n\033[96m{label}\033[0m", end=" ", flush=True)
+                print(f"{COLOR_RESET}\n\n{COLOR_AI}{label}{COLOR_RESET}", end=" ", flush=True)
                 buffer = parts[1]
             else:
                 if len(buffer) > THINK_TAG_HOLDBACK:
@@ -67,7 +75,7 @@ def _run_stream(llm, full_prompt, label="AI ="):
                     suppress_tool = False
 
     if state == "THINKING":
-        print(f"{COLOR_RESET}\n\n\033[96m{label}\033[0m", end=" ", flush=True)
+        print(f"{COLOR_RESET}\n\n{COLOR_AI}{label}{COLOR_RESET}", end=" ", flush=True)
         print(full_response.replace("<think>", "").strip(), end="", flush=True)
     else:
         if suppress_tool:
@@ -80,7 +88,7 @@ def _run_stream(llm, full_prompt, label="AI ="):
 
 
 def _extract_final_answer(full_response):
-    # PERBAIKAN: Hanya cek tag penutup </think> saja
+    # Hanya cek tag penutup </think> saja
     if "</think>" in full_response:
         final_answer = full_response.split("</think>", 1)[1].strip()
     else:
@@ -97,6 +105,10 @@ def _strip_tool_tags(text):
     return re.sub(r"<tool>.*?</tool>", "", text, flags=re.DOTALL).strip()
 
 
+def _has_tool_call(text):
+    return "<tool>" in text and "</tool>" in text
+
+
 def chat_loop(llm):
     """Menjalankan loop interaksi CLI dengan tampilan yang rapi dan elegan."""
     print("=" * 50)
@@ -108,7 +120,7 @@ def chat_loop(llm):
 
     while True:
         try:
-            user_input = input("\n\033[92mAnda:\033[0m ")
+            user_input = input(f"\n{COLOR_USER}Anda:{COLOR_RESET} ")
         except (KeyboardInterrupt, EOFError):
             print("\n\nSesi diakhiri secara paksa. Sampai jumpa!")
             break
@@ -129,31 +141,52 @@ def chat_loop(llm):
             full_response = _run_stream(llm, full_prompt, label="AI =")
             final_answer = _extract_final_answer(full_response)
 
+            if not final_answer.strip():
+                print(f"\n{COLOR_WARN}[Model tidak menghasilkan jawaban, coba ulangi pertanyaan]{COLOR_RESET}")
+                continue
+
             tool_observation = None
-            if "<tool>" in final_answer and "</tool>" in final_answer:
-                print(f"\n\033[93m⚡ [AGENT MENGEKSEKUSI TOOL]\033[0m")
-                tool_observation = execute_tool(final_answer)
-                print(f"\033[92m✅ [HASIL SISTEM]:\033[0m {tool_observation}\n")
+            if _has_tool_call(final_answer):
+                print(f"\n{COLOR_WARN}⚡ [AGENT MENGEKSEKUSI TOOL]{COLOR_RESET}")
+                try:
+                    tool_observation = execute_tool(final_answer)
+                except Exception as tool_err:
+                    tool_observation = f"[Error saat menjalankan tool: {tool_err}]"
+                print(f"{COLOR_OK}✅ [HASIL SISTEM]:{COLOR_RESET} {tool_observation}\n")
 
             turn_text = format_clean_history(user_input, final_answer, tool_observation)
 
-            if tool_observation:
+            if tool_observation is not None:
                 followup_prompt = SYSTEM_PROMPT + "".join(chat_history) + turn_text + "<|im_start|>assistant\n<think>\n"
 
                 followup_response = _run_stream(llm, followup_prompt, label="AI (lanjutan) =")
-                clean_followup = _strip_tool_tags(_extract_final_answer(followup_response))
+                followup_answer = _extract_final_answer(followup_response)
 
+                if _has_tool_call(followup_answer):
+                    # Agent ini belum mendukung tool-call berantai (multi-step) dalam satu giliran.
+                    # Tool kedua TIDAK dieksekusi -- hanya diberi tahu ke pengguna agar tidak hilang diam-diam.
+                    print(f"\n{COLOR_WARN}[Peringatan] Model mencoba memanggil tool lagi setelah tool "
+                          f"pertama, tapi ini belum didukung sehingga diabaikan.{COLOR_RESET}")
+
+                clean_followup = _strip_tool_tags(followup_answer)
                 turn_text += f"<|im_start|>assistant\n{clean_followup}<|im_end|>\n"
 
             chat_history.append(turn_text)
 
             elapsed = time.time() - start_time
-            print(f"\033[90m[Waktu proses: {elapsed:.2f} detik]\033[0m")
+            print(f"{COLOR_DIM}[Waktu proses: {elapsed:.2f} detik]{COLOR_RESET}")
 
             while len(chat_history) > MAX_MEMORY:
                 chat_history.pop(0)
 
+        except KeyboardInterrupt:
+            # Ctrl+C saat generate: batalkan giliran ini saja, jangan tutup seluruh sesi
+            print(f"\n\n{COLOR_WARN}[Dibatalkan pengguna, giliran ini tidak disimpan]{COLOR_RESET}")
+            continue
+
         except Exception as e:
-            print(f"\n\033[91m[Error saat generate teks: {e}]\033[0m")
+            print(f"\n{COLOR_ERR}[Error saat generate teks: {e}]{COLOR_RESET}")
+            # Heuristik pemulihan: error semacam ini biasanya karena prompt kepanjangan
+            # (melebihi context window model), jadi buang riwayat tertua agar giliran berikutnya lebih ringkas.
             if len(chat_history) > 0:
                 chat_history.pop(0)
